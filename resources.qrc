@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/cocotrainer" >
+        <file>icon.png</file>
+    </qresource>
+</RCC>
