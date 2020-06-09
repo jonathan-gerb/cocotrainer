@@ -81,6 +81,49 @@ class cocotrainer:
         # Must be set in initGui() to survive plugin reloads
         self.first_start = None
 
+        self.license_dict = {
+            "MIT license": {
+                "url": "https://opensource.org/licenses/MIT",
+                "id": 0,
+                "name": "The MIT License"
+            },
+            "GNU GPL 3": {
+                "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
+                "id": 1,
+                "name": "GNU General Public License version 3"
+            },
+            "GNU GPL 2": {
+                "url": "https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html",
+                "id": 2,
+                "name": "GNU General Public License version 2"
+            },
+            "BSD 3": {
+                "url": "https://opensource.org/licenses/BSD-3-Clause",
+                "id": 3,
+                "name": "The 3-Clause BSD License"
+            },
+            "BSD 2": {
+                "url": "https://opensource.org/licenses/BSD-2-Clause",
+                "id": 4,
+                "name": "The 2-Clause BSD License"
+            },
+            "Apache 2.0": {
+                "url": "http://www.apache.org/licenses/",
+                "id": 5,
+                "name": "Apache License, Version 2.0"
+            },
+            "MPL 2.0": {
+                "url": "https://www.mozilla.org/en-US/MPL/2.0/FAQ/",
+                "id": 6,
+                "name": "Mozilla Public License 2.0"
+            },
+            "Creative Commons 1.0": {
+                "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/",
+                "id": 7,
+                "name": "Attribution-NonCommercial-ShareAlike License"
+            }
+        }
+
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
         """Get the translation for a string using Qt translation API.
@@ -96,18 +139,17 @@ class cocotrainer:
         # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
         return QCoreApplication.translate('cocotrainer', message)
 
-
     def add_action(
-        self,
-        icon_path,
-        text,
-        callback,
-        enabled_flag=True,
-        add_to_menu=True,
-        add_to_toolbar=True,
-        status_tip=None,
-        whats_this=None,
-        parent=None):
+            self,
+            icon_path,
+            text,
+            callback,
+            enabled_flag=True,
+            add_to_menu=True,
+            add_to_toolbar=True,
+            status_tip=None,
+            whats_this=None,
+            parent=None):
         """Add a toolbar icon to the toolbar.
 
         :param icon_path: Path to the icon for this action. Can be a resource
@@ -184,7 +226,6 @@ class cocotrainer:
         # will be set False in run()
         self.first_start = True
 
-
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
         for action in self.actions:
@@ -208,13 +249,31 @@ class cocotrainer:
 
         img_size = int(self.dlg.imagesizeselector.currentText())
         scale_realworld = int(self.dlg.zoomlevel.currentText())
+        buffer_size = int(self.dlg.buffersize.text()) / 100
         target_dir = self.dlg.dirselectline.text()
+        dataset_description = str(self.dlg.datasetdescription.text())
+        contributor = str(self.dlg.creatorname.text())
+        url = str(self.dlg.url.text())
+        version = str(self.dlg.datasetversion.text())
+        license = str(self.dlg.licenseselector.currentText())
+
+        # to implement
+        scale_to_fit = self.dlg.scaletofit.isChecked()
+        use_fieldcategory = bool(self.dlg.usecategoryfields.isChecked())
+        categoryfield = self.dlg.categoryfields.currentText()
+
+
+        QgsMessageLog.logMessage(str(scale_to_fit), "cocotrainer", level=Qgis.Info)
+        QgsMessageLog.logMessage(str(use_fieldcategory), "cocotrainer", level=Qgis.Info)
 
         # prepare directories
         os.makedirs(os.path.join(target_dir, "train"), exist_ok=True)
         os.makedirs(os.path.join(target_dir, "val"), exist_ok=True)
 
         QgsMessageLog.logMessage("====================================", "cocotrainer", level=Qgis.Info)
+
+        # TODO:
+        #  - use field categories
 
         features_iterator = vectorlayer.getFeatures(QgsFeatureRequest().setFilterExpression('$area > 1'))
 
@@ -232,31 +291,46 @@ class cocotrainer:
 
         date = datetime.now()
 
+        cat_dict = {}
+        if use_fieldcategory:
+            categories = []
+            # uniqueprovider = rasterlayer.dataProvider()
+            fields = vectorlayer.fields()
+            id = fields.indexFromName(categoryfield)
+            uniquevalues = vectorlayer.uniqueValues(id)
+            for i, val in enumerate(uniquevalues):
+                categories.append({"supercategory": "object", "id": i, "name": str(val)})
+                cat_dict[str(val)] = i
+        else:
+            categories = [{"supercategory": "object", "id": 0, "name": "CATEGORYNAME"}]
+            cat_dict["CATEGORYNAME"] = 0
+
         coco_annotation = {
             "info": {
-                    "description": "DATASET NAME",
-                    "url": "http://cocodataset.org",
-                    "version": "1.0",
-                    "year": int(date.strftime("%Y")),
-                    "contributor": "COCO Consortium",
-                    "date_created": date.strftime("%d/%m/%y")
-                    },
-            "licenses": [{
-                    "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/",
-                    "id": 1,
-                    "name": "Attribution-NonCommercial-ShareAlike License"
-                    }],
+                "description": dataset_description,
+                "url": url,
+                "version": version,
+                "year": int(date.strftime("%Y")),
+                "contributor": contributor,
+                "date_created": date.strftime("%d/%m/%y")
+            },
+            "licenses": [self.license_dict[license]],
             "images": [],
             "annotations": [],
-            "categories": [{"supercategory": "object", "id": 1, "name": "CATEGORYNAME"}],  # < -- Not in Captionsannotations
+            "categories": categories,
+            # < -- Not in Captionsannotations
             "segment_info": []  # < -- Only in Panoptic annotations
         }
-
 
         bboxes, polygons = {}, {}
         for i, feature in enumerate(features):
             polygons[i] = feature.geometry()
             bboxes[i] = feature.geometry().boundingBox()
+
+        if use_fieldcategory:
+            cats = {}
+            for i, feature in enumerate(features):
+                cats[i] = str(feature[categoryfield])
 
         image_id = 0
         annotation_id = 0
@@ -267,14 +341,28 @@ class cocotrainer:
             geoms = feature.geometry()
             bbox = geoms.boundingBox()
 
-            midpoint = bbox.center()
-            QgsMessageLog.logMessage("trying to log centerpoint", "cocotrainer", level=Qgis.Info)
-            QgsMessageLog.logMessage(str(midpoint.x()), "cocotrainer", level=Qgis.Info)
-            QgsMessageLog.logMessage(str(midpoint.y()), "cocotrainer", level=Qgis.Info)
-            xmin = midpoint.x() - scale_realworld / 2
-            xmax = midpoint.x() + scale_realworld / 2
-            ymin = midpoint.y() - scale_realworld / 2
-            ymax = midpoint.y() + scale_realworld / 2
+            if scale_to_fit:
+                xmax = bbox.xMaximum()
+                ymax = bbox.yMaximum()
+                ymin = bbox.yMinimum()
+                xmin = bbox.xMinimum()
+
+                diffx = xmax - xmin
+                diffy = ymax - ymin
+                xmax = xmax + (buffer_size * diffx)
+                xmin = xmin - (buffer_size * diffx)
+                ymax = ymax + (buffer_size * diffy)
+                ymin = ymin - (buffer_size * diffy)
+
+            else:
+                midpoint = bbox.center()
+                QgsMessageLog.logMessage("trying to log centerpoint", "cocotrainer", level=Qgis.Info)
+                QgsMessageLog.logMessage(str(midpoint.x()), "cocotrainer", level=Qgis.Info)
+                QgsMessageLog.logMessage(str(midpoint.y()), "cocotrainer", level=Qgis.Info)
+                xmin = midpoint.x() - scale_realworld / 2
+                xmax = midpoint.x() + scale_realworld / 2
+                ymin = midpoint.y() - scale_realworld / 2
+                ymax = midpoint.y() + scale_realworld / 2
 
             extent = QgsRectangle(xmin, ymin, xmax, ymax)
 
@@ -314,32 +402,25 @@ class cocotrainer:
                     flat_list = [item for sublist in polygon for item in sublist]
                     QgsMessageLog.logMessage(str(flat_list), "cocotrainer", level=Qgis.Info)
 
-                    # bbox in real world coords:
-                    bbo = [geo.xMinimum(), geo.yMaximum(), geo.width(), geo.height()]
-
-                    pixelposbbox = [int(np.min(xs)), (int(np.min(ys))), geo.width() * (img_size / scale_realworld), geo.height() * (img_size / scale_realworld)]
-
+                    pixelposbbox = [int(np.min(xs)), (int(np.min(ys))), geo.width() * (img_size / scale_realworld),
+                                    geo.height() * (img_size / scale_realworld)]
                     pixelposbbox = [number if number > 0 else 0 for number in pixelposbbox]
 
-                    # bbox = [b for b in bboxes.values()]
-
-                    QgsMessageLog.logMessage(str([geo.xMinimum(), geo.yMaximum(), geo.width(), geo.height()]), "cocotrainer", level=Qgis.Info)
-
+                    QgsMessageLog.logMessage(str([geo.xMinimum(), geo.yMaximum(), geo.width(), geo.height()]),
+                                             "cocotrainer", level=Qgis.Info)
                     QgsMessageLog.logMessage(str(pixelposbbox), "cocotrainer", level=Qgis.Info)
 
                     annotation = {
-                            "segmentation": [flat_list],  # format is [x1,y1,x2,y2]
-                            "area": polygons[j].area(),
-                            "iscrowd": 0,
-                            "image_id": image_id,
-                            "bbox": pixelposbbox,  # format is [top left x position, top left y position, width, height]
-                            "category_id": 1,
-                            "id": annotation_id
-                        }
+                        "segmentation": [flat_list],  # format is [x1,y1,x2,y2]
+                        "area": polygons[j].area(),
+                        "iscrowd": 0,
+                        "image_id": image_id,
+                        "bbox": pixelposbbox,  # format is [top left x position, top left y position, width, height]
+                        "category_id": cat_dict[cats[j]],
+                        "id": annotation_id
+                    }
                     annotation_id += 1
-
                     coco_annotation["annotations"].append(annotation)
-                    # QgsMessageLog.logMessage(str(annotation), "cocotrainer", level=Qgis.Info)
 
             options.setExtent(extent)
             render = QgsMapRendererParallelJob(options)
@@ -354,7 +435,6 @@ class cocotrainer:
             render.finished.connect(finished)
             render.start()
             render.waitForFinished()
-
             image_id += 1
 
         QgsMessageLog.logMessage(str(coco_annotation), "cocotrainer", level=Qgis.Info)
@@ -365,6 +445,15 @@ class cocotrainer:
         self.dlg.progressBar.setValue(100)
         self.dlg.finished_label.setText("parsed {} features".format(len(list(features))))
 
+    def getfieldnames(self):
+        self.dlg.categoryfields.clear()
+        layers = QgsProject.instance().mapLayers().values()
+        vectorlayers = [layer for layer in layers if layer.type() == VectorLayer]
+        vectorlayer = vectorlayers[self.dlg.vectorlayerselector.currentIndex()]
+
+        self.dlg.categoryfields.addItems([str(field.name()) for field in vectorlayer.fields()])
+
+
     def run(self):
         """Run method that performs all the real work"""
 
@@ -374,6 +463,7 @@ class cocotrainer:
             self.first_start = False
             self.dlg = cocotrainerDialog()
             self.dlg.browsefilesbutton.clicked.connect(self.select_output_folder)
+            self.dlg.usecategoryfields.clicked.connect(self.getfieldnames)
             self.dlg.make_dataset.clicked.connect(self.make_coco_dataset)
 
         # Fetch the currently loaded layers
@@ -382,12 +472,20 @@ class cocotrainer:
         # Clear the contents of the comboBox from previous runs
         self.dlg.vectorlayerselector.clear()
         self.dlg.rasterlayerselector.clear()
+        self.dlg.zoomlevel.clear()
+        self.dlg.imagesizeselector.clear()
+        self.dlg.licenseselector.clear()
+        self.dlg.categoryfields.clear()
 
         # Populate the comboBox with names of all the loaded layers
         self.dlg.vectorlayerselector.addItems([layer.name() for layer in layers if layer.type() == VectorLayer])
         self.dlg.rasterlayerselector.addItems([layer.name() for layer in layers if layer.type() == RasterLayer])
-        self.dlg.imagesizeselector.addItems(["256", "512"])
-        self.dlg.zoomlevel.addItems(["5", "10", "25", "50"])
+        self.dlg.imagesizeselector.addItems(["128", "256", "512", "1024"])
+        self.dlg.zoomlevel.addItems(["5", "10", "25", "50", "100"])
+
+        self.dlg.licenseselector.addItems(
+            ["MIT license", "GNU GPL 3", "GNU GPL 2", "BSD 3", "BSD 2", "Apache 2.0", "MPL 2.0",
+             "Creative Commons 1.0"])
         self.dlg.progressBar.setValue(0)
 
         # show the dialog
